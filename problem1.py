@@ -267,7 +267,7 @@ if __name__ == "__main__":
     
     
 
-#    mnist.init()
+    mnist.init()
     
     x_train, t_train, x_test, t_test = mnist.load()
     

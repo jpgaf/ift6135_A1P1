@@ -51,9 +51,10 @@ class NN(object):
         self.mode = mode
         self.init_type = init_type
 
-        # Load data
-        self.x_train = data['x_train']
-        self.x_test = data['x_test']
+        # Load data and normalize
+        self.x_train = data['x_train'] / 255
+        self.x_test = data['x_test'] / 255
+
         # For the target we use one hot encoding.
         self.target_train = onehot(data['t_train'])
         self.target_test = onehot(data['t_test'])
@@ -95,11 +96,18 @@ class NN(object):
             -fully connected (with bias = 0) => (n_input) x (n_output)
              parameters.
         """
-        if init_type == 'normal':
+        if init_type == "normal":
             weights = np.random.normal(0, 1, size=dims)
 
-        elif init_type == 'zero':
+        elif init_type == "zero":
             weights = np.zeros(dims)
+
+        elif init_type == "glorot":
+            n_in = dims[0]
+            n_out = dims[1]
+            d = np.sqrt(6 / (n_in + n_out))
+            np.random.uniform(d, size=dims)
+            weights = np.random.uniform(-d, d, size=dims)
 
         else:
             str_error = 'The type "{}" for weight initialization ' + \
@@ -192,12 +200,13 @@ class NN(object):
         for epoch in range(n_epochs):
 
             epoch_loss = list()
-            # n_batch = self.x_train.shape[0] // batch_size
-            n_batch = 1
-            sample_id = np.random.choice(range(self.x_train.shape[0]),
-                                         size=batch_size, replace=False)
+            n_batch = self.x_train.shape[0] // batch_size
+            #n_batch = 1
 
             for i in range(n_batch):
+
+                sample_id = np.random.choice(range(self.x_train.shape[0]),
+                                             size=batch_size, replace=False)
 
                 # Batch data
                 # xi = self.x_train[i * batch_size: (i + 1) * batch_size]
@@ -215,12 +224,35 @@ class NN(object):
                 # Update weights
                 self.update(avg_grad, learning_rate)
 
-                print("Epoch: {}/{} - Minibatch {}/{}: / Loss: {}".format(
-                    epoch, n_epochs, i, n_batch, loss))
+                # Accuracy
+                accuracy = self.check_accuracy(yi)
+
+                print("Epoch: {}/{} - Minibatch {}/{}: "\
+                      "/ Loss: {}"\
+                      "/ Accuracy: {}".format(epoch+1, n_epochs, i, n_batch+1,
+                                              loss, accuracy))
 
         # Average epoch loss
         loss_tracking.append(sum(epoch_loss) / len(epoch_loss))
         return loss_tracking, self.layers
+
+
+    def check_accuracy(self, labels):
+        """
+        Look the the accuracy
+        :param labels:
+        :return:
+        """
+        a = self.layers[-1].feature
+        counter = 0
+        for i in range(a.shape[0]):
+            pred = a[i, :]
+            label_i = labels[i, :]
+            if pred[np.where(label_i == 1)] == pred.max():
+                counter += 1
+        counter /= labels.shape[0]
+
+        return counter
 
     def test(self):
         """

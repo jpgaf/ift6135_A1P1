@@ -33,7 +33,7 @@ if __name__ == "__main__":
     #     if mlp.layers[i].layer_weights is not None:
     #         print(mlp.layers[i].layer_weights.shape)
 
-    mlp.train(learning_rate=0.1)
+    mlp.train(learning_rate=0.05, batch_size=32)
     #
     # h0 = 784
     # h1 = 512

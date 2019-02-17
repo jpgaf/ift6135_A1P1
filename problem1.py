@@ -7,7 +7,7 @@ I used some elements from:
 @author:
 """
 import importlib
-import mnist
+import utils
 import mlp
 importlib.reload(mlp)
 

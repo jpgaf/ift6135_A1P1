@@ -1,12 +1,24 @@
 import numpy as np
 import pickle
+import gzip
+
+from urllib import request
+from utils import load, plot, gradient_checking
 
 
 class LinearLayer:
-    def __init__(self, input_dim, output_dim):
-        d = np.sqrt(6/(input_dim + output_dim))
-        self.weights = np.random.uniform(-d, d, size=(input_dim, output_dim))# np.random.normal(0, 1, size=(input_dim, output_dim))  # np.zeros((input_dim, output_dim))
-        self.biases = np.zeros(output_dim)  # np.random.normal(0, 1, size=output_dim)  # np.zeros(output_dim)
+    def __init__(self, input_dim, output_dim, initialization):
+        self.input_dim, self.output_dim = input_dim, output_dim
+        if initialization == 'normal':
+            self.weights = np.random.normal(0, 1, size=(input_dim, output_dim))
+        elif initialization == 'zeros':
+            self.weights = np.zeros((input_dim, output_dim))
+        elif initialization == 'glorot':
+            d = np.sqrt(6 / (input_dim + output_dim))
+            self.weights = np.random.uniform(-d, d, size=(input_dim, output_dim))
+        else:
+            raise ValueError
+        self.biases = np.zeros(output_dim)
         self.latest_input = None
         self.weights_grad = None
         self.biases_grad = None
@@ -206,15 +218,18 @@ class NLLLoss:
 
 
 class NN:
-    def __init__(self):
-        # LinearLayer(100, 100),
-        #                        Sigmoid(),
-        self.layers = [LinearLayer(784, 1024), ReLU(), LinearLayer(1024, 256), ReLU(), LinearLayer(256, 10)]
+    def __init__(self, initialization, hidden_dims, activation, lr, batch_size=32):
+        self.hidden_dims, self.activation, self.lr = hidden_dims, activation, lr
+        activation_fn = ReLU if activation == 'relu' else Sigmoid
+
+        self.layers = [LinearLayer(784, hidden_dims[0], initialization), activation_fn(),
+                       LinearLayer(hidden_dims[0], hidden_dims[1], initialization), activation_fn(),
+                       LinearLayer(hidden_dims[1], 10, initialization)]
+
         self.loss_fn = CrossEntropyLoss()
         self.latest_input = None
         self.latest_output = None
-        self.lr = 0.25  # 0.0001 for ReLU; 0.001 for Sigmoid
-        self.batch_size = 32
+        self.batch_size = batch_size
 
     def forward(self, x):
         self.latest_input = x
@@ -235,13 +250,20 @@ class NN:
             l.step(self.lr)
         return loss
 
-    def train(self, n_epochs, train_data, train_labels, test_data, test_labels):
+    def train(self, n_epochs, train_data, train_labels, test_data, test_labels, validation_size=5000):
+
+        permuted_indices = np.random.permutation(range(train_data.shape[0]))
+        valid_data = train_data[permuted_indices[:validation_size]]
+        valid_labels = train_labels[permuted_indices[:validation_size]]
+        train_data = train_data[permuted_indices[validation_size:]]
+        train_labels = train_labels[permuted_indices[validation_size:]]
+
         train_inner_loops = train_data.shape[0] // self.batch_size
         for epoch in range(n_epochs):
             # permute data
-            # permuted_indices = np.random.permutation(range(train_data.shape[0]))
-            # train_data = train_data[permuted_indices]
-            # train_labels = train_labels[permuted_indices]
+            permuted_indices = np.random.permutation(range(train_data.shape[0]))
+            train_data = train_data[permuted_indices]
+            train_labels = train_labels[permuted_indices]
 
             for iteration in range(train_inner_loops):
                 train_inpt = train_data[iteration * self.batch_size: (iteration + 1) * self.batch_size] / 255.
@@ -250,11 +272,14 @@ class NN:
                 b = self.backward(train_labl)
                 if iteration % 200 == 0:
                     classification_accuracy = 1. - np.count_nonzero(f.argmax(axis=1) - train_labl) / float(self.batch_size)
-                    print('epoch:{} iter: {} accuracy: {}'.format(epoch, iteration, classification_accuracy))
-            self.test(test_data, test_labels, epoch)
+                    # print('epoch:{} iter: {} accuracy: {} loss: {}'.format(epoch, iteration, classification_accuracy,
+                    #                                                        np.mean(b)))
+            self.test(valid_data, valid_labels, epoch, 'validation')
 
-    def test(self, test_data, test_labels, epoch=''):
-        test_inner_loops = test_data.shape[0] // self.batch_size
+        self.test(test_data, test_labels, epoch, 'test')
+
+    def test(self, test_data, test_labels, epoch='', mode='test'):
+        test_inner_loops = (test_data.shape[0] + self.batch_size) // self.batch_size
         correct = 0.
         for iteration in range(test_inner_loops):
             test_inpt = test_data[iteration * self.batch_size: (iteration + 1) * self.batch_size] / 255.
@@ -263,9 +288,11 @@ class NN:
             classification_accuracy = test_inpt.shape[0] - np.count_nonzero(f.argmax(axis=1) - test_labl)
             if np.sum(f.argmax(axis=1) - test_labl) != 0:
                 temp = f.argmax(axis=1) - test_labl
-                print('base: {} wrong indices: {}'.format(iteration * self.batch_size, temp.nonzero()))
+                # print('base: {} wrong indices: {}'.format(iteration * self.batch_size, temp.nonzero()))
             correct += classification_accuracy
-        print('epoch: {} test accuracy is {}'.format(epoch, correct / test_data.shape[0]))
+        # print('hidden[{}, {}]_lr:{}_nonlin:{} {} {}'.format(self.layers[0].output_dim, self.layers[2].output_dim,
+        #                                                     self.lr, self.activation, epoch+1, correct / test_data.shape[0]))
+        print('{} epoch: {} accuracy: {}'.format(mode, epoch, correct / test_data.shape[0]))
 
     def save(self, path):
         params = []
@@ -282,93 +309,25 @@ class NN:
             l.load_params(p)
 
 
-
-
-nn = NN()
-# Test XOR
-# batch = [([0, 0], 0),
-#          ([0, 1], 1),
-#          ([1, 0], 1),
-#          ([1, 1], 0)
-#          ]
-#
-# for i in range(10000):
-#     f = nn.forward(batch[i % 4][0])
-#     b = nn.backward(batch[i % 4][1])
-#     if i % 33 == 0:
-#         print('input: {} output:{} loss:{}'.format(batch[i % 4], np.argmax(f), b))
-
-from urllib import request
-import gzip
-import pickle
-
-filename = [
-    ["training_images", "train-images-idx3-ubyte.gz"],
-    ["test_images", "t10k-images-idx3-ubyte.gz"],
-    ["training_labels", "train-labels-idx1-ubyte.gz"],
-    ["test_labels", "t10k-labels-idx1-ubyte.gz"]
-]
-
-
-def download_mnist():
-    base_url = "http://yann.lecun.com/exdb/mnist/"
-    for name in filename:
-        print("Downloading " + name[1] + "...")
-        request.urlretrieve(base_url + name[1], name[1])
-    print("Download complete.")
-
-
-def save_mnist():
-    mnist = {}
-    for name in filename[:2]:
-        with gzip.open(name[1], 'rb') as f:
-            mnist[name[0]] = np.frombuffer(f.read(), np.uint8, offset=16).reshape(-1, 28 * 28)
-    for name in filename[-2:]:
-        with gzip.open(name[1], 'rb') as f:
-            mnist[name[0]] = np.frombuffer(f.read(), np.uint8, offset=8)
-    with open("mnist.pkl", 'wb') as f:
-        pickle.dump(mnist, f)
-    print("Save complete.")
-
-
-def init():
-    download_mnist()
-    save_mnist()
-
-
-def load():
-    with open("mnist.pkl", 'rb') as f:
-        mnist = pickle.load(f)
-    return mnist["training_images"], mnist["training_labels"], mnist["test_images"], mnist["test_labels"]
-
-
-# init()
+# train on mnist
+print('training on mnist and storing the parameters in params.pkl')
 data = load()
-print('training size: {} sample output:{}'.format(data[0].shape[0], data[1][0]))
-# nn.train(11, *data)
-# nn.save('/home/srini/PycharmProjects/IFT6135/params2.pkl')
-nn.load('/home/srini/PycharmProjects/IFT6135/params.pkl')
-# nn.test(data[2], data[3])
-t_softmax = Softmax()
-sample_idx = 430
-weight_idx = 0
-print('forward: {} label: {}'.format(t_softmax(nn.forward(np.array([data[2][sample_idx]]) / 255.)), data[3][sample_idx]))
-nn.backward(np.array([data[3][sample_idx]]))
-true_gradient = nn.layers[2].weights_grad[0][:10]
-print('true gradient: {}'.format(true_gradient))
-for base_eps in [1., 10., 100., 1000., 10000., 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11]:
-    for factor in range(1, 6):
-        eps = 1./(factor * base_eps)
-        diff_grads = []
-        for weight_idx in range(10):
-            # nn.test(data[2], data[3])
-            nn.layers[2].weights[0][weight_idx] += eps
-            nn.forward(np.array([data[2][sample_idx]]) / 255.)
-            output_1 = nn.backward(np.array([data[3][sample_idx]]))
-            nn.layers[2].weights[0][weight_idx] -= (2 * eps)
-            nn.forward(np.array([data[2][sample_idx]]) / 255.)
-            output_2 = nn.backward(np.array([data[3][sample_idx]]))
-            diff_grads.append((output_1 - output_2)/(2 * eps))
-            # print('true gradient: {} finite difference gradient: {}'.format(true_gradient, diff_grads[-1]))
-            nn.layers[2].weights[0][weight_idx] += eps  # reset the weight to the old value
-        print('eps:{} max diff: {}'.format(eps, np.abs(true_gradient - np.array(diff_grads)).max()))
+model = NN('glorot', [512, 256], 'relu', 0.25)
+model.train(10, *data)  # n_epochs, data
+model.save('params.pkl')
+
+# finite differences gradient checking
+print('gradient checking with model stored in params.pkl')
+model.load('params.pkl')
+gradient_checking(model, data)
+
+# hyperparameter search
+# print('training size: {} sample output:{}'.format(data[0].shape[0], data[1][0]))
+# for activation in ['relu']:
+#     for hidden1 in [256, 512, 1024]:
+#         for hidden2 in [256, 512, 1024]:
+#             for lr in [0.25, 0.025, 0.0025]:
+#                 model = NN('glorot', [hidden1, hidden2], activation, lr)
+#                 model.train(10, *data)
+
+# plot('/home/srini/PycharmProjects/IFT6135/A1/hyperparameter_results_relu2')

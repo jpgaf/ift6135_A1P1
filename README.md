@@ -10,5 +10,3 @@ Run Q1.py for the problem 1 results.
 - pandas
 - seaborn
 
-## Additional comment.
-

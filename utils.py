@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Feb  6 18:30:24 2019
-
-@author: JPGagnonFleury
+MNIST download from https://github.com/hsjeong5/MNIST-for-Numpy/blob/master/mnist.py
 """
 
 import numpy as np
